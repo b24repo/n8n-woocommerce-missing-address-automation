@@ -1,1 +1,157 @@
-See full workflow.json in repo - 17 nodes n8n workflow for WooCommerce missing address handling
+{
+  "name": "WooCommerce Missing Address Handler - 3PL Integration",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "woocommerce-missing-address",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook_trigger",
+      "name": "Webhook: 3PL Notification",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fields": {
+          "values": [
+            {
+              "name": "email_body",
+              "value": "={{ $json.body }}"
+            },
+            {
+              "name": "email_subject",
+              "value": "={{ $json.subject }}"
+            },
+            {
+              "name": "timestamp",
+              "value": "={{ new Date().toISOString() }}"
+            }
+          ]
+        }
+      },
+      "id": "data_sanitize",
+      "name": "Sanitize Input Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [
+        450,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "model": "claude-opus-4",
+        "jsonMode": false,
+        "options": {
+          "temperature": 0
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "Extract the following information from this warehouse email:\n\n1. Order Number (look for patterns like #12345 or Order 12345)\n2. Customer Name\n3. Customer Email\n4. Customer Phone (if available)\n5. Issue Description (what is missing about the address)\n6. Warehouse Name\n7. Date Reported\n\nEmail Subject: {{ $json.email_subject }}\nEmail Body: {{ $json.email_body }}\n\nRespond ONLY with a valid JSON object with keys: order_number, customer_name, customer_email, customer_phone, issue_description, warehouse_name, date_reported. If any field is not found, use null.",
+              "role": "user"
+            }
+          ]
+        }
+      },
+      "id": "claude_extract",
+      "name": "Claude: Extract Order Details",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [
+        650,
+        300
+      ],
+      "credentials": {
+        "openAiApi": "claude_api"
+      }
+    },
+    {
+      "parameters": {
+        "expression": "={{ !(JSON.parse($json.output).order_number) }}"
+      },
+      "id": "validation_check",
+      "name": "Check: Order Number Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        850,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "sendImmediately": false,
+        "message": "Unable to extract order number from warehouse notification.\n\nSubject: {{ $json.email_subject }}\n\nThis notification could not be processed. Please review the email and verify the order information is included.",
+        "subject": "[n8n Alert] Failed to Process 3PL Notification",
+        "toEmail": "alerts@yourcompany.com"
+      },
+      "id": "error_notify_team",
+      "name": "Send Error Alert",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [
+        1050,
+        150
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://{{ $env.WOOCOMMERCE_DOMAIN }}/wp-json/wc/v3/orders?search={{ JSON.parse($json.output).order_number }}&per_page=1",
+        "authentication": "genericCredentialType",
+        "genericCredentialType": "basicAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "woo_fetch_order",
+      "name": "HTTP: Fetch Order from WooCommerce",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1050,
+        400
+      ],
+      "credentials": {
+        "basicAuth": "woocommerce_api"
+      }
+    },
+    {
+      "parameters": {
+        "expression": "={{ $json.body.length > 0 }}"
+      },
+      "id": "order_found_check",
+      "name": "Check: Order Found",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1250,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract the order from the API response\nconst order = $json.body[0];\nconst shippingAddress = order.shipping || {};\nconst billingAddress = order.billing || {};\n\nconst addressIssues = [];\n\nif (!shippingAddress.address_1 || shippingAddress.address_1.trim() === '') {\n  addressIssues.push('Missing street address');\n}\n\nreturn {\n  order_id: order.id,\n  has_address_issues: addressIssues.length > 0,\n  address_issues: addressIssues
+n};"
+      },
+      "id": "analyze_address",
+      "name": "Code: Analyze Address Completeness",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1450,
+        400
+      ]
+    }
+  ],
+  "connections": {},
+  "active": false
+}
