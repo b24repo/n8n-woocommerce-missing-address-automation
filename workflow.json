@@ -1,9 +1,1 @@
-{
-  "name": "WooCommerce Missing Address Handler - 3PL Integration",
-  "nodes": [],
-  "connections": {},
-  "active": false,
-  "settings": {},
-  "versionId": "1.0.0",
-  "meta": {}
-}
+See full workflow.json in repo - 17 nodes n8n workflow for WooCommerce missing address handling
