@@ -1,0 +1,317 @@
+================================================================================
+                    START HERE - DEPLOYMENT GUIDE
+================================================================================
+
+Welcome to the WooCommerce Missing Address Handler workflow!
+
+This package contains a production-ready n8n workflow that automates handling 
+of incomplete shipping addresses reported by your 3PL warehouse.
+
+================================================================================
+WHAT'S INCLUDED (6 Files)
+================================================================================
+
+1. workflow.json (17 KB)
+   → THE MAIN FILE - Import this into n8n
+   → Contains 17 nodes, 18 connections
+   → All integrations configured
+   → Ready to use immediately
+
+2. QUICKSTART.md (6.2 KB)
+   → READ THIS FIRST if you're in a hurry
+   → 5-minute setup guide
+   → Configuration checklist
+
+3. README.md (15 KB)
+   → Comprehensive documentation
+   → Architecture explanation
+   → Detailed setup instructions
+   → Troubleshooting guide
+   → Production deployment checklist
+
+4. NODE_REFERENCE.md (18 KB)
+   → Deep dive into each of the 17 nodes
+   → Configuration details
+   → API credential setup
+   → Customization examples
+
+5. IMPLEMENTATION_MAP.md (14 KB)
+   → Visual implementation guide
+   → Timeline and checklist
+   → Quick navigation
+   → Troubleshooting reference
+
+6. MANIFEST.txt
+   → Project overview
+   → Feature summary
+   → File listing
+
+================================================================================
+QUICK START (5 MINUTES)
+================================================================================
+
+STEP 1: Import the Workflow
+   → Open your n8n instance
+   → Go to Workflows → Import from File
+   → Select workflow.json from this folder
+   → Click Import
+
+STEP 2: Add Credentials
+   → In n8n, go to Settings → Credentials
+   → Create 3 credentials:
+      1. Claude API (get key: https://console.anthropic.com/)
+      2. WooCommerce (REST API credentials from WordPress)
+      3. Google Sheets (service account JSON)
+
+STEP 3: Set Environment Variables
+   → On your n8n server, add these:
+      WOOCOMMERCE_DOMAIN=yourstore.com
+      GOOGLE_SHEETS_TRACKING_ID=YOUR_SHEET_ID
+      SLACK_WEBHOOK_URL=https://hooks.slack.com/...
+      SITE_URL=https://yourstore.com
+
+STEP 4: Create Tracking Sheet
+   → Create new Google Sheet
+   → Add headers: Timestamp | Order ID | Order Number | Customer Name | 
+     Customer Email | Customer Phone | Missing Fields | Action Taken | 
+     Status | Follow-up Date
+   → Share with Google service account email
+
+STEP 5: Test It
+   → Send test webhook request:
+   curl -X POST https://your-n8n/webhook/woocommerce-missing-address \
+     -H "Content-Type: application/json" \
+     -d '{"body": "Order #12345 missing apartment number", "subject": "Alert"}'
+
+STEP 6: Activate
+   → Toggle workflow to "Active"
+   → You're live!
+
+Total time: ~30 minutes
+
+================================================================================
+WHAT THIS WORKFLOW DOES
+================================================================================
+
+When a 3PL warehouse sends a missing address notification:
+
+1. RECEIVES the webhook notification
+2. EXTRACTS order/customer data using Claude AI
+3. VALIDATES the order exists in WooCommerce
+4. ANALYZES which address fields are missing
+5. SENDS automated customer email requesting address correction
+6. SENDS SMS reminder (optional, if phone number available)
+7. ALERTS fulfillment team on Slack
+8. LOGS everything in Google Sheets for tracking
+
+All with comprehensive error handling and alerting.
+
+================================================================================
+RECOMMENDED READING ORDER
+================================================================================
+
+For Quick Setup (Busy):
+   1. This file (you're reading it)
+   2. QUICKSTART.md (5 minutes)
+   3. Deploy!
+
+For Thorough Setup (Recommended):
+   1. This file
+   2. README.md (comprehensive)
+   3. IMPLEMENTATION_MAP.md (visual guide)
+   4. NODE_REFERENCE.md (if you need details)
+
+For Advanced/Customization:
+   1. All of the above
+   2. NODE_REFERENCE.md (detailed config)
+   3. README.md "Advanced Customization" section
+
+================================================================================
+KEY FILES TO KNOW
+================================================================================
+
+IMPORT FILE:
+   workflow.json
+   └─ This is what you import into n8n
+     └─ No credentials are stored here (it's safe!)
+
+CONFIGURATION:
+   - Claude API credentials (get from https://console.anthropic.com/)
+   - WooCommerce Consumer Key/Secret
+   - Google Sheets service account JSON
+   - Environment variables (WOOCOMMERCE_DOMAIN, etc.)
+
+MONITORING:
+   - Google Sheet (you create)
+   - n8n Execution History (in UI)
+   - Error alerts (sent to alerts@yourcompany.com)
+
+================================================================================
+REQUIREMENTS CHECKLIST
+================================================================================
+
+Before you start, make sure you have:
+
+□ n8n instance (self-hosted or cloud)
+□ Claude API account (https://console.anthropic.com/)
+□ WooCommerce store with REST API enabled
+□ Google Cloud project with Sheets API
+□ Gmail or SMTP server for email sending
+□ Slack workspace (optional, for team alerts)
+□ Twilio account (optional, for SMS)
+
+Don't have all of these? That's okay:
+- Claude API: REQUIRED
+- WooCommerce: REQUIRED
+- Google Sheets: REQUIRED
+- Email: REQUIRED
+- Slack & Twilio: OPTIONAL
+
+================================================================================
+CREDENTIALS YOU NEED TO GATHER
+================================================================================
+
+1. CLAUDE API KEY
+   Source: https://console.anthropic.com/account/api-keys
+   Format: sk-ant-...
+   Where used: Claude AI extraction node
+
+2. WOOCOMMERCE REST API CREDENTIALS
+   Source: WordPress Admin → WooCommerce → Settings → Advanced → REST API
+   What you need: Consumer Key + Consumer Secret
+   Format: Basic Auth
+
+3. GOOGLE SHEETS SERVICE ACCOUNT
+   Source: https://console.cloud.google.com/
+   What you need: JSON key file with credentials
+   Format: JSON credential file
+
+4. GOOGLE SHEETS TRACKING SHEET ID
+   Create: New Google Sheet
+   Source: URL bar: https://docs.google.com/spreadsheets/d/{SHEET_ID}/...
+   Extract: The SHEET_ID part
+   Add headers: See QUICKSTART.md
+
+5. (OPTIONAL) SLACK WEBHOOK URL
+   Source: Slack workspace settings → Apps → Webhooks
+   Format: https://hooks.slack.com/services/...
+
+6. (OPTIONAL) TWILIO CREDENTIALS
+   Source: Twilio account console
+   Format: Service ID + Integration ID
+
+================================================================================
+WORKFLOW OVERVIEW
+================================================================================
+
+The workflow contains 17 nodes organized into 5 categories:
+
+ENTRY POINT (1 node):
+   └─ Webhook: Receives notifications from 3PL system
+
+PROCESSING (4 nodes):
+   ├─ Sanitize incoming data
+   ├─ Claude AI extraction
+   ├─ Address analysis
+   └─ Data formatting
+
+DECISIONS (3 nodes):
+   ├─ Order number valid?
+   ├─ Order found in WooCommerce?
+   └─ Address issues exist?
+
+ACTIONS (5 nodes):
+   ├─ Email customer
+   ├─ SMS customer (optional)
+   ├─ Slack team alert
+   └─ Google Sheets logging
+
+ALERTS (4 nodes):
+   ├─ Error notifications
+   ├─ Order not found alert
+   ├─ False positive notification
+   └─ Critical error handler
+
+================================================================================
+PRODUCTION DEPLOYMENT CHECKLIST
+================================================================================
+
+Before going live:
+
+WEEK 1: SETUP
+   □ Gather all credentials
+   □ Import workflow.json
+   □ Create Google Sheet
+   □ Configure n8n credentials
+   □ Set environment variables
+   □ Test webhook manually
+
+WEEK 2: TESTING
+   □ Run with test data
+   □ Verify email delivery
+   □ Check Google Sheet logging
+   □ Review execution logs
+   □ Test all error paths
+
+WEEK 3: GO LIVE
+   □ Activate workflow
+   □ Connect 3PL system
+   □ Monitor first 24 hours closely
+   □ Train team on tracking sheet
+   □ Set up daily/weekly reviews
+
+See README.md for complete checklist
+
+================================================================================
+MONITORING & SUPPORT
+================================================================================
+
+DAILY:
+   - Check Google Sheets for new rows
+   - Look for unusual patterns
+   - Review any error emails
+
+WEEKLY:
+   - Check n8n execution history
+   - Review customer response rates
+   - Look for extraction issues
+
+MONTHLY:
+   - Analyze metrics (volume, response rate, error rate)
+   - Optimize email template if needed
+   - Plan enhancements
+
+NEED HELP?
+   - n8n Docs: https://docs.n8n.io/
+   - n8n Community: https://community.n8n.io/
+   - Claude API Docs: https://docs.anthropic.com/
+   - WooCommerce REST API: https://woocommerce.github.io/woocommerce-rest-api-docs/
+
+================================================================================
+NEXT STEPS
+================================================================================
+
+1. READ: QUICKSTART.md (5 minutes)
+   └─ Fast track setup guide
+
+2. GATHER: Credentials (credentials phase)
+   └─ Claude, WooCommerce, Google credentials
+
+3. SETUP: Follow QUICKSTART.md exactly
+   └─ Import, configure, test
+
+4. DEPLOY: Activate and monitor
+   └─ Start with test notifications
+
+5. OPTIMIZE: Track and improve
+   └─ Monitor Google Sheet daily
+
+ESTIMATED TIME TO PRODUCTION: 1 HOUR
+
+================================================================================
+
+Questions? See the comprehensive documentation in the other files!
+
+Ready? Open QUICKSTART.md next →
+
+================================================================================

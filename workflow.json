@@ -139,8 +139,7 @@
     },
     {
       "parameters": {
-        "functionCode": "// Extract the order from the API response\nconst order = $json.body[0];\nconst shippingAddress = order.shipping || {};\nconst billingAddress = order.billing || {};\n\nconst addressIssues = [];\n\nif (!shippingAddress.address_1 || shippingAddress.address_1.trim() === '') {\n  addressIssues.push('Missing street address');\n}\n\nreturn {\n  order_id: order.id,\n  has_address_issues: addressIssues.length > 0,\n  address_issues: addressIssues
-n};"
+        "functionCode": "// Extract the order from the API response\nconst order = $json.body[0];\nconst shippingAddress = order.shipping || {};\nconst billingAddress = order.billing || {};\n\nconst addressIssues = [];\n\n// Check for missing address fields\nif (!shippingAddress.address_1 || shippingAddress.address_1.trim() === '') {\n  addressIssues.push('Missing street address');\n}\nif (!shippingAddress.city || shippingAddress.city.trim() === '') {\n  addressIssues.push('Missing city');\n}\nif (!shippingAddress.state || shippingAddress.state.trim() === '') {\n  addressIssues.push('Missing state/province');\n}\nif (!shippingAddress.postcode || shippingAddress.postcode.trim() === '') {\n  addressIssues.push('Missing postal code');\n}\nif (!shippingAddress.country || shippingAddress.country.trim() === '') {\n  addressIssues.push('Missing country');\n}\n\nreturn {\n  order_id: order.id,\n  order_number: order.number,\n  customer_email: order.billing.email,\n  customer_name: order.billing.first_name + ' ' + order.billing.last_name,\n  customer_phone: order.billing.phone,\n  shipping_address: shippingAddress,\n  billing_address: billingAddress,\n  has_address_issues: addressIssues.length > 0,\n  address_issues: addressIssues,\n  order_status: order.status,\n  order_total: order.total,\n  order_created: order.date_created\n};"
       },
       "id": "analyze_address",
       "name": "Code: Analyze Address Completeness",
@@ -150,8 +149,375 @@ n};"
         1450,
         400
       ]
+    },
+    {
+      "parameters": {
+        "expression": "={{ $json.has_address_issues }}"
+      },
+      "id": "address_issue_check",
+      "name": "Check: Address Issues Found",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1650,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "to": "={{ $json.customer_email }}",
+        "subject": "Action Required: Complete Your Shipping Address for Order #{{ $json.order_number }}",
+        "emailType": "html",
+        "htmlMessage": "<html><body><div style=\"font-family: Arial, sans-serif; color: #333;\">\n<h2>Action Required: Update Your Shipping Address</h2>\n<p>Dear {{ $json.customer_name }},</p>\n<p>We're preparing to ship your order <strong>#{{ $json.order_number }}</strong>, but we're missing some details for your shipping address.</p>\n<p><strong>Missing information:</strong></p>\n<ul>\n{{ $json.address_issues.reduce((html, issue) => html + '<li>' + issue + '</li>', '') }}\n</ul>\n<p>Please <a href=\"{{ $env.SITE_URL }}/my-account/orders/{{ $json.order_id }}/\">update your address here</a> as soon as possible to avoid shipment delays.</p>\n<p>If you have any questions, please reply to this email or contact our support team.</p>\n<p>Thank you,<br/>Customer Service Team</p>\n</div></body></html>"
+      },
+      "id": "send_email_customer",
+      "name": "Email: Request Address Correction",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [
+        1850,
+        250
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://hooks.twilio.com/services/{{ $env.TWILIO_SERVICE_ID }}/{{ $env.TWILIO_INTEGRATION_ID }}",
+        "authentication": "none",
+        "options": {
+          "timeout": 15000
+        },
+        "bodyType": "json",
+        "body": "{\n  \"to\": \"{{ $json.customer_phone }}\",\n  \"message\": \"Hi {{ $json.customer_name }}, we need your updated shipping address for order #{{ $json.order_number }}. Please visit {{ $env.SITE_URL }}/orders/{{ $json.order_id }} within 24 hours. Thank you!\"\n}"
+      },
+      "id": "send_sms_customer",
+      "name": "Twilio: Send SMS Reminder",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1850,
+        350
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "authentication": "none",
+        "bodyType": "json",
+        "body": "{\n  \"channel\": \"#fulfillment-alerts\",\n  \"username\": \"WooCommerce Bot\",\n  \"icon_emoji\": \":package:\",\n  \"text\": \"Missing Address Alert for Order #{{ $json.order_number }}\",\n  \"attachments\": [\n    {\n      \"color\": \"warning\",\n      \"fields\": [\n        { \"title\": \"Order Number\", \"value\": \"#{{ $json.order_number }}\", \"short\": true },\n        { \"title\": \"Customer\", \"value\": \"{{ $json.customer_name }}\", \"short\": true },\n        { \"title\": \"Email\", \"value\": \"{{ $json.customer_email }}\", \"short\": true },\n        { \"title\": \"Status\", \"value\": \"{{ $json.order_status }}\", \"short\": true },\n        { \"title\": \"Missing Fields\", \"value\": \"{{ $json.address_issues.join(', ') }}\", \"short\": false }\n      ]\n    }\n  ]\n}"
+      },
+      "id": "notify_slack",
+      "name": "Slack: Post Alert to Fulfillment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1850,
+        450
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": "={{ $env.GOOGLE_SHEETS_TRACKING_ID }}",
+        "action": "append",
+        "columns": "A,B,C,D,E,F,G,H,I,J",
+        "options": {}
+      },
+      "id": "log_to_sheet",
+      "name": "Google Sheets: Log Tracking",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 2,
+      "position": [
+        2050,
+        350
+      ],
+      "credentials": {
+        "googleSheetsApi": "google_sheets_creds"
+      }
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "values": [
+          {
+            "name": "Timestamp",
+            "value": "={{ new Date().toISOString() }}"
+          },
+          {
+            "name": "Order ID",
+            "value": "={{ $json.order_id }}"
+          },
+          {
+            "name": "Order Number",
+            "value": "={{ $json.order_number }}"
+          },
+          {
+            "name": "Customer Name",
+            "value": "={{ $json.customer_name }}"
+          },
+          {
+            "name": "Customer Email",
+            "value": "={{ $json.customer_email }}"
+          },
+          {
+            "name": "Customer Phone",
+            "value": "={{ $json.customer_phone }}"
+          },
+          {
+            "name": "Missing Fields",
+            "value": "={{ $json.address_issues.join('; ') }}"
+          },
+          {
+            "name": "Action Taken",
+            "value": "Email & SMS Sent"
+          },
+          {
+            "name": "Status",
+            "value": "Pending Customer Response"
+          },
+          {
+            "name": "Follow-up Date",
+            "value": "={{ new Date(Date.now() + 86400000).toISOString().split('T')[0] }}"
+          }
+        ]
+      },
+      "id": "prepare_sheet_data",
+      "name": "Set: Prepare Google Sheet Row",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [
+        2050,
+        450
+      ]
+    },
+    {
+      "parameters": {
+        "sendImmediately": false,
+        "message": "Order #{{ $json.order_number }} for {{ $json.customer_name }} was not found in WooCommerce.\n\nPlease verify the order number: {{ JSON.parse($json.output).order_number }}\n\nTimestamp: {{ new Date().toISOString() }}",
+        "subject": "[n8n] WooCommerce Order Not Found",
+        "toEmail": "alerts@yourcompany.com"
+      },
+      "id": "order_not_found_alert",
+      "name": "Send: Order Not Found Alert",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [
+        1450,
+        550
+      ]
+    },
+    {
+      "parameters": {
+        "sendImmediately": false,
+        "message": "The customer's address for order #{{ $json.order_number }} appears to be complete.\n\nThis order does not require address correction at this time.\n\nOrder Details:\n- Customer: {{ $json.customer_name }}\n- Email: {{ $json.customer_email }}\n- Status: {{ $json.order_status }}\n\nThis may indicate a false positive from the 3PL warehouse notification.",
+        "subject": "[Info] Address Complete - No Action Needed for Order #{{ $json.order_number }}",
+        "toEmail": "alerts@yourcompany.com"
+      },
+      "id": "no_issues_found_log",
+      "name": "Send: No Issues Found Notification",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [
+        1850,
+        550
+      ]
+    },
+    {
+      "parameters": {
+        "sendImmediately": false,
+        "message": "An error occurred while processing the warehouse notification.\n\nWorkflow Execution ID: {{ $execution.id }}\nError Time: {{ new Date().toISOString() }}\n\nPlease check the n8n execution logs for details.",
+        "subject": "[CRITICAL] n8n Workflow Error - Missing Address Handler",
+        "toEmail": "alerts@yourcompany.com"
+      },
+      "id": "critical_error_handler",
+      "name": "Send: Critical Error Alert",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [
+        2250,
+        200
+      ]
     }
   ],
-  "connections": {},
-  "active": false
+  "connections": {
+    "webhook_trigger": {
+      "main": [
+        [
+          {
+            "node": "data_sanitize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "data_sanitize": {
+      "main": [
+        [
+          {
+            "node": "claude_extract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "claude_extract": {
+      "main": [
+        [
+          {
+            "node": "validation_check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "validation_check": {
+      "main": [
+        [
+          {
+            "node": "error_notify_team",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "woo_fetch_order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "woo_fetch_order": {
+      "main": [
+        [
+          {
+            "node": "order_found_check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "order_found_check": {
+      "main": [
+        [
+          {
+            "node": "order_not_found_alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "analyze_address",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "analyze_address": {
+      "main": [
+        [
+          {
+            "node": "address_issue_check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "address_issue_check": {
+      "main": [
+        [
+          {
+            "node": "send_email_customer",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "send_sms_customer",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "notify_slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "no_issues_found_log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "send_email_customer": {
+      "main": [
+        [
+          {
+            "node": "prepare_sheet_data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "send_sms_customer": {
+      "main": [
+        [
+          {
+            "node": "prepare_sheet_data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "notify_slack": {
+      "main": [
+        [
+          {
+            "node": "prepare_sheet_data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "prepare_sheet_data": {
+      "main": [
+        [
+          {
+            "node": "log_to_sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "errorHandler": {
+      "node": "critical_error_handler",
+      "enabled": true
+    }
+  },
+  "versionId": "1.0.0",
+  "meta": {
+    "instanceId": "{{ instanceId }}",
+    "description": "Production workflow for handling missing address notifications from 3PL warehouses. Monitors webhook for notifications, extracts order details using Claude AI, validates against WooCommerce orders, and automatically sends customer communications with tracking in Google Sheets."
+  }
 }
